@@ -1,0 +1,54 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  modle:
+    image: moodlehq/moodle-php-apache:8.2
+    restart: unless-stopped
+    ports:
+      - "${MOODLE_PORT}:80"
+    environment:
+      APACHE_DOCUMENT_ROOT: /var/www/html
+    volumes:
+      - moodledata:/var/www/html
+      - moodlefiles:/var/www/moodledata
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        if [ ! -f /usr/local/etc/php/conf.d/moodle-custom.ini ]; then
+          apt-get update && apt-get install -y libpng-dev libjpeg-dev libfreetype6-dev libzip-dev libicu-dev libpq-dev libxml2-dev
+          docker-php-ext-configure gd --with-freetype --with-jpeg
+          docker-php-ext-install -j$(nproc) gd intl pgsql pdo_pgsql zip soap opcache exif bcmath
+          echo "max_input_vars = 5000" >> /usr/local/etc/php/conf.d/moodle-custom.ini
+          echo "upload_max_filesize = 128M" >> /usr/local/etc/php/conf.d/moodle-custom.ini
+          echo "post_max_size = 128M" >> /usr/local/etc/php/conf.d/moodle-custom.ini
+          echo "memory_limit = 512M" >> /usr/local/etc/php/conf.d/moodle-custom.ini
+        fi
+
+        if [ ! -f /var/www/html/version.php ]; then
+          curl -sSL -k https://github.com/moodle/moodle/archive/refs/heads/MOODLE_405_STABLE.tar.gz -o /tmp/moodle.tar.gz
+          tar -xzf /tmp/moodle.tar.gz --strip-components=1 -C /var/www/html/
+          rm -f /tmp/moodle.tar.gz
+          mkdir -p /var/www/moodledata
+          chown -R www-data:www-data /var/www/html /var/www/moodledata
+          chmod -R 775 /var/www/html
+          chmod -R 777 /var/www/moodledata
+        fi
+
+        . /etc/apache2/envvars
+        exec apache2 -D FOREGROUND
+    depends_on:
+      - db
+
+volumes:
+  pgdata:
+  moodledata:
+  moodlefiles:
